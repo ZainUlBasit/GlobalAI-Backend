@@ -11,11 +11,12 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { name, duration, fee, isOnline } = req.body;
+    const { name, duration, fee, isOnline, feeCollectionBasis } = req.body;
     const course = await Course.create({
       name: name || 'Custom',
       duration: duration || '1 year',
       fee: fee || 0,
+      feeCollectionBasis: ['monthly', 'semester'].includes(feeCollectionBasis) ? feeCollectionBasis : 'semester',
       isOnline: !!isOnline,
     });
     res.status(201).json({ success: true, data: course });
