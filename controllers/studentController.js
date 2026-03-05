@@ -81,10 +81,15 @@ exports.create = async (req, res, next) => {
       role: 'student',
       status: 'active',
     });
+    const totalYears = parseDurationYears(course?.duration);
+    const initialStudyYear = Math.min(
+      Math.max(Number(studyYear) > 0 ? Number(studyYear) : 1, 1),
+      totalYears
+    );
     await Student.create({
       userId: user._id,
       courseId,
-      studyYear: Number(studyYear) > 0 ? Number(studyYear) : 1,
+      studyYear: initialStudyYear,
       batch,
       section: section || '',
       shift: shift || 'morning',
@@ -113,12 +118,22 @@ exports.update = async (req, res, next) => {
 
     const student = await Student.findOne({ userId });
     if (student) {
-      if (courseId) student.courseId = courseId;
+      if (courseId) {
+        const courseChanged = String(student.courseId) !== String(courseId);
+        student.courseId = courseId;
+        if (courseChanged && studyYear === undefined) {
+          // When course changes, restart progression unless explicitly provided.
+          student.studyYear = 1;
+        }
+      }
       if (batch) student.batch = batch;
       if (section !== undefined) student.section = section;
       if (shift) student.shift = shift;
       if (dueAmount !== undefined) student.dueAmount = dueAmount;
       if (studyYear !== undefined && Number(studyYear) > 0) student.studyYear = Number(studyYear);
+      const courseRef = await Course.findById(student.courseId).select('duration').lean();
+      const totalYears = parseDurationYears(courseRef?.duration);
+      student.studyYear = Math.min(Math.max(Number(student.studyYear || 1), 1), totalYears);
       await student.save();
     }
     const updated = await User.findById(userId).select('-password');
@@ -175,6 +190,16 @@ exports.promote = async (req, res, next) => {
     }
 
     student.studyYear = currentYear + 1;
+    if (req.body && req.body.nextTermFee !== undefined) {
+      const nextTermFee = Number(req.body.nextTermFee);
+      if (!Number.isFinite(nextTermFee) || nextTermFee < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'nextTermFee must be a valid non-negative number',
+        });
+      }
+      student.dueAmount = Number(student.dueAmount || 0) + nextTermFee;
+    }
     if (req.body && typeof req.body.batch === 'string' && req.body.batch.trim()) {
       student.batch = req.body.batch.trim();
     }
