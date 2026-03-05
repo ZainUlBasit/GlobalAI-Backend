@@ -5,6 +5,21 @@ const Mark = require('../models/Mark');
 const Student = require('../models/Student');
 const User = require('../models/User');
 
+const parseDurationMonths = (duration) => {
+  const text = String(duration || '').toLowerCase();
+  const years = text.match(/(\d+)\s*year/);
+  if (years) return Math.max((parseInt(years[1], 10) || 1) * 12, 1);
+  const sem = text.match(/(\d+)\s*semester/);
+  if (sem) {
+    const semesters = Math.max(parseInt(sem[1], 10) || 1, 1);
+    const monthsEach = Math.max(parseInt((text.match(/(\d+)\s*month[s]?\s*each/) || [])[1] || '6', 10) || 6, 1);
+    return semesters * monthsEach;
+  }
+  const months = text.match(/(\d+)\s*month/);
+  if (months) return Math.max(parseInt(months[1], 10) || 1, 1);
+  return 12;
+};
+
 exports.listAssignments = async (req, res, next) => {
   try {
     const filter = req.user.role === 'teacher' ? { teacherId: req.user.id } : {};
@@ -248,7 +263,35 @@ exports.getMyDues = async (req, res, next) => {
       .populate('paidBy', 'name')
       .sort({ date: -1 })
       .lean();
-    res.json({ success: true, data: { dueAmount: student.dueAmount, payments } });
+    const courseFee = Number(student.courseId?.fee || 0);
+    const firstYearFee = Number(student.firstYearFee ?? courseFee);
+    const currentFee = Number(student.currentTermFee ?? firstYearFee);
+    const feeCollectionBasis = student.courseId?.feeCollectionBasis || 'semester';
+    const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const durationMonths = parseDurationMonths(student.courseId?.duration);
+    const totalCycles = feeCollectionBasis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
+    res.json({
+      success: true,
+      data: {
+        dueAmount: student.dueAmount,
+        payments,
+        student,
+        totalPaid,
+        feeCollectionBasis,
+        firstYearFee,
+        currentFee,
+        collectionPlan: {
+          basis: feeCollectionBasis,
+          cycleLabel: feeCollectionBasis === 'monthly' ? 'month' : 'semester',
+          totalCycles,
+          duration: student.courseId?.duration || '',
+          firstCycleFee: firstYearFee,
+          currentCycleFee: currentFee,
+          receivedAmount: totalPaid,
+          remainingAmount: Number(student.dueAmount || 0),
+        },
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -4,6 +4,21 @@ const User = require('../models/User');
 const Student = require('../models/Student');
 const FeePayment = require('../models/FeePayment');
 
+const parseDurationMonths = (duration) => {
+  const text = String(duration || '').toLowerCase();
+  const years = text.match(/(\d+)\s*year/);
+  if (years) return Math.max((parseInt(years[1], 10) || 1) * 12, 1);
+  const sem = text.match(/(\d+)\s*semester/);
+  if (sem) {
+    const semesters = Math.max(parseInt(sem[1], 10) || 1, 1);
+    const monthsEach = Math.max(parseInt((text.match(/(\d+)\s*month[s]?\s*each/) || [])[1] || '6', 10) || 6, 1);
+    return semesters * monthsEach;
+  }
+  const months = text.match(/(\d+)\s*month/);
+  if (months) return Math.max(parseInt(months[1], 10) || 1, 1);
+  return 12;
+};
+
 exports.getIncome = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
@@ -157,6 +172,19 @@ exports.getStudentFee = async (req, res, next) => {
     const firstYearFee = Number(student.firstYearFee ?? courseFee ?? 0);
     const currentFee = Number(student.currentTermFee ?? firstYearFee ?? courseFee ?? 0);
     const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const durationMonths = parseDurationMonths(student.courseId?.duration);
+    const totalCycles = feeCollectionBasis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
+    const cycleLabel = feeCollectionBasis === 'monthly' ? 'month' : 'semester';
+    const collectionPlan = {
+      basis: feeCollectionBasis,
+      cycleLabel,
+      totalCycles,
+      duration: student.courseId?.duration || '',
+      firstCycleFee: firstYearFee,
+      currentCycleFee: currentFee,
+      receivedAmount: totalPaid,
+      remainingAmount: Number(student.dueAmount || 0),
+    };
     res.json({
       success: true,
       data: {
@@ -168,6 +196,7 @@ exports.getStudentFee = async (req, res, next) => {
         firstYearFee,
         currentFee,
         totalPaid,
+        collectionPlan,
       },
     });
   } catch (err) {
