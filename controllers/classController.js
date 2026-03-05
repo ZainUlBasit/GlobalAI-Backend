@@ -20,6 +20,16 @@ const parseDurationMonths = (duration) => {
   return 12;
 };
 
+const resolveCycleFees = ({ student, courseFee, totalCycles }) => {
+  const defaultCycleFee = totalCycles > 0 ? Number((courseFee / totalCycles).toFixed(2)) : Number(courseFee || 0);
+  const rawFirst = Number(student.firstYearFee ?? 0);
+  const rawCurrent = Number(student.currentTermFee ?? 0);
+  const isLegacyTotalStored = totalCycles > 1 && rawFirst === Number(courseFee || 0);
+  const firstYearFee = rawFirst > 0 && !isLegacyTotalStored ? rawFirst : defaultCycleFee;
+  const currentFee = rawCurrent > 0 && !(totalCycles > 1 && rawCurrent === Number(courseFee || 0)) ? rawCurrent : defaultCycleFee;
+  return { firstYearFee, currentFee };
+};
+
 exports.listAssignments = async (req, res, next) => {
   try {
     const filter = req.user.role === 'teacher' ? { teacherId: req.user.id } : {};
@@ -264,12 +274,15 @@ exports.getMyDues = async (req, res, next) => {
       .sort({ date: -1 })
       .lean();
     const courseFee = Number(student.courseId?.fee || 0);
-    const firstYearFee = Number(student.firstYearFee ?? courseFee);
-    const currentFee = Number(student.currentTermFee ?? firstYearFee);
     const feeCollectionBasis = student.courseId?.feeCollectionBasis || 'semester';
     const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const durationMonths = parseDurationMonths(student.courseId?.duration);
     const totalCycles = feeCollectionBasis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
+    const { firstYearFee, currentFee } = resolveCycleFees({
+      student,
+      courseFee,
+      totalCycles,
+    });
     res.json({
       success: true,
       data: {

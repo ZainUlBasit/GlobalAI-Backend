@@ -26,6 +26,30 @@ const parseDurationYears = (duration) => {
   return 1;
 };
 
+const parseDurationMonths = (duration) => {
+  if (!duration || typeof duration !== 'string') return 12;
+  const text = duration.toLowerCase();
+  const yearsMatch = text.match(/(\d+)\s*year/);
+  if (yearsMatch) return Math.max((parseInt(yearsMatch[1], 10) || 1) * 12, 1);
+  const semestersMatch = text.match(/(\d+)\s*semester/);
+  if (semestersMatch) {
+    const semesters = Math.max(parseInt(semestersMatch[1], 10) || 1, 1);
+    const monthsEach = Math.max(parseInt((text.match(/(\d+)\s*month[s]?\s*each/) || [])[1] || '6', 10) || 6, 1);
+    return semesters * monthsEach;
+  }
+  const monthsMatch = text.match(/(\d+)\s*month/);
+  if (monthsMatch) return Math.max(parseInt(monthsMatch[1], 10) || 1, 1);
+  return 12;
+};
+
+const getDefaultCycleFee = (course) => {
+  const totalFee = Number(course?.fee || 0);
+  const basis = course?.feeCollectionBasis || 'semester';
+  const durationMonths = parseDurationMonths(course?.duration);
+  const cycles = basis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
+  return cycles > 0 ? Number((totalFee / cycles).toFixed(2)) : totalFee;
+};
+
 exports.list = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -74,6 +98,7 @@ exports.create = async (req, res, next) => {
     }
     const course = await Course.findById(courseId);
     const courseFee = course ? (course.fee ?? 0) : 0;
+    const defaultCycleFee = getDefaultCycleFee(course);
     const user = await User.create({
       name,
       email,
@@ -90,8 +115,8 @@ exports.create = async (req, res, next) => {
       userId: user._id,
       courseId,
       studyYear: initialStudyYear,
-      firstYearFee: courseFee,
-      currentTermFee: courseFee,
+      firstYearFee: defaultCycleFee,
+      currentTermFee: defaultCycleFee,
       batch,
       section: section || '',
       shift: shift || 'morning',
@@ -126,10 +151,10 @@ exports.update = async (req, res, next) => {
         if (courseChanged && studyYear === undefined) {
           // When course changes, restart progression unless explicitly provided.
           student.studyYear = 1;
-          const newCourse = await Course.findById(courseId).select('fee').lean();
-          const baseFee = Number(newCourse?.fee || 0);
-          student.firstYearFee = baseFee;
-          student.currentTermFee = baseFee;
+          const newCourse = await Course.findById(courseId).select('fee duration feeCollectionBasis').lean();
+          const baseCycleFee = getDefaultCycleFee(newCourse);
+          student.firstYearFee = baseCycleFee;
+          student.currentTermFee = baseCycleFee;
         }
       }
       if (batch) student.batch = batch;

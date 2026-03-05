@@ -19,6 +19,16 @@ const parseDurationMonths = (duration) => {
   return 12;
 };
 
+const resolveCycleFees = ({ student, courseFee, basis, totalCycles }) => {
+  const defaultCycleFee = totalCycles > 0 ? Number((courseFee / totalCycles).toFixed(2)) : Number(courseFee || 0);
+  const rawFirst = Number(student.firstYearFee ?? 0);
+  const rawCurrent = Number(student.currentTermFee ?? 0);
+  const isLegacyTotalStored = totalCycles > 1 && rawFirst === Number(courseFee || 0);
+  const firstYearFee = rawFirst > 0 && !isLegacyTotalStored ? rawFirst : defaultCycleFee;
+  const currentFee = rawCurrent > 0 && !(totalCycles > 1 && rawCurrent === Number(courseFee || 0)) ? rawCurrent : defaultCycleFee;
+  return { firstYearFee, currentFee };
+};
+
 exports.getIncome = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
@@ -169,11 +179,15 @@ exports.getStudentFee = async (req, res, next) => {
     const payments = await FeePayment.find({ studentId: student._id }).sort({ date: -1 }).lean();
     const courseFee = student.courseId?.fee ?? 0;
     const feeCollectionBasis = student.courseId?.feeCollectionBasis || 'semester';
-    const firstYearFee = Number(student.firstYearFee ?? courseFee ?? 0);
-    const currentFee = Number(student.currentTermFee ?? firstYearFee ?? courseFee ?? 0);
     const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const durationMonths = parseDurationMonths(student.courseId?.duration);
     const totalCycles = feeCollectionBasis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
+    const { firstYearFee, currentFee } = resolveCycleFees({
+      student,
+      courseFee: Number(courseFee || 0),
+      basis: feeCollectionBasis,
+      totalCycles,
+    });
     const cycleLabel = feeCollectionBasis === 'monthly' ? 'month' : 'semester';
     const collectionPlan = {
       basis: feeCollectionBasis,
