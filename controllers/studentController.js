@@ -90,6 +90,8 @@ exports.create = async (req, res, next) => {
       userId: user._id,
       courseId,
       studyYear: initialStudyYear,
+      firstYearFee: courseFee,
+      currentTermFee: courseFee,
       batch,
       section: section || '',
       shift: shift || 'morning',
@@ -124,6 +126,10 @@ exports.update = async (req, res, next) => {
         if (courseChanged && studyYear === undefined) {
           // When course changes, restart progression unless explicitly provided.
           student.studyYear = 1;
+          const newCourse = await Course.findById(courseId).select('fee').lean();
+          const baseFee = Number(newCourse?.fee || 0);
+          student.firstYearFee = baseFee;
+          student.currentTermFee = baseFee;
         }
       }
       if (batch) student.batch = batch;
@@ -198,6 +204,7 @@ exports.promote = async (req, res, next) => {
           message: 'nextTermFee must be a valid non-negative number',
         });
       }
+      student.currentTermFee = nextTermFee;
       student.dueAmount = Number(student.dueAmount || 0) + nextTermFee;
     }
     if (req.body && typeof req.body.batch === 'string' && req.body.batch.trim()) {

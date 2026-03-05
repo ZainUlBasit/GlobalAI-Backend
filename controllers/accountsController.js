@@ -153,6 +153,8 @@ exports.getStudentFee = async (req, res, next) => {
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
     const payments = await FeePayment.find({ studentId: student._id }).sort({ date: -1 }).lean();
     const courseFee = student.courseId?.fee ?? 0;
+    const firstYearFee = Number(student.firstYearFee ?? courseFee ?? 0);
+    const currentFee = Number(student.currentTermFee ?? firstYearFee ?? courseFee ?? 0);
     const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     res.json({
       success: true,
@@ -161,6 +163,8 @@ exports.getStudentFee = async (req, res, next) => {
         payments,
         dueAmount: student.dueAmount,
         courseFee,
+        firstYearFee,
+        currentFee,
         totalPaid,
       },
     });
