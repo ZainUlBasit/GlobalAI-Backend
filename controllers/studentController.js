@@ -5,9 +5,23 @@ const bcrypt = require('bcryptjs');
 
 const parseDurationYears = (duration) => {
   if (!duration || typeof duration !== 'string') return 1;
-  const yearsMatch = duration.toLowerCase().match(/(\d+)\s*year/);
+  const text = duration.toLowerCase();
+  const yearsMatch = text.match(/(\d+)\s*year/);
   if (yearsMatch) return Math.max(parseInt(yearsMatch[1], 10) || 1, 1);
-  const numberMatch = duration.match(/(\d+)/);
+
+  const semestersMatch = text.match(/(\d+)\s*semester/);
+  if (semestersMatch) {
+    const semesters = Math.max(parseInt(semestersMatch[1], 10) || 1, 1);
+    return Math.max(Math.ceil(semesters / 2), 1);
+  }
+
+  const monthsMatch = text.match(/(\d+)\s*month/);
+  if (monthsMatch) {
+    const months = Math.max(parseInt(monthsMatch[1], 10) || 1, 1);
+    return Math.max(Math.ceil(months / 12), 1);
+  }
+
+  const numberMatch = text.match(/(\d+)/);
   if (numberMatch) return Math.max(parseInt(numberMatch[1], 10) || 1, 1);
   return 1;
 };
