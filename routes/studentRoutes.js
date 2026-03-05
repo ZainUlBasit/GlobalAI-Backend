@@ -7,6 +7,7 @@ router.use(protect);
 router.get('/', isAccountant, studentController.list);
 router.get('/:id', isAdmin, studentController.getOne);
 router.post('/', isAdmin, studentController.create);
+router.patch('/:id/promote', isAdmin, studentController.promote);
 router.put('/:id', isAdmin, studentController.update);
 router.delete('/:id', isAdmin, studentController.remove);
 

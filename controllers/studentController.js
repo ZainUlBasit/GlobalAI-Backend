@@ -3,6 +3,15 @@ const Student = require('../models/Student');
 const Course = require('../models/Course');
 const bcrypt = require('bcryptjs');
 
+const parseDurationYears = (duration) => {
+  if (!duration || typeof duration !== 'string') return 1;
+  const yearsMatch = duration.toLowerCase().match(/(\d+)\s*year/);
+  if (yearsMatch) return Math.max(parseInt(yearsMatch[1], 10) || 1, 1);
+  const numberMatch = duration.match(/(\d+)/);
+  if (numberMatch) return Math.max(parseInt(numberMatch[1], 10) || 1, 1);
+  return 1;
+};
+
 exports.list = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -44,7 +53,7 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { name, email, password, courseId, batch, section, shift } = req.body;
+    const { name, email, password, courseId, batch, section, shift, studyYear } = req.body;
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email already exists' });
@@ -61,6 +70,7 @@ exports.create = async (req, res, next) => {
     await Student.create({
       userId: user._id,
       courseId,
+      studyYear: Number(studyYear) > 0 ? Number(studyYear) : 1,
       batch,
       section: section || '',
       shift: shift || 'morning',
@@ -76,7 +86,7 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const { name, contact, address, courseId, batch, section, shift, dueAmount } = req.body;
+    const { name, contact, address, courseId, batch, section, shift, dueAmount, studyYear } = req.body;
     const userId = req.params.id;
     const user = await User.findById(userId);
     if (!user || user.role !== 'student') {
@@ -94,6 +104,7 @@ exports.update = async (req, res, next) => {
       if (section !== undefined) student.section = section;
       if (shift) student.shift = shift;
       if (dueAmount !== undefined) student.dueAmount = dueAmount;
+      if (studyYear !== undefined && Number(studyYear) > 0) student.studyYear = Number(studyYear);
       await student.save();
     }
     const updated = await User.findById(userId).select('-password');
@@ -127,6 +138,40 @@ exports.getOne = async (req, res, next) => {
     }
     const student = await Student.findOne({ userId: user._id }).populate('courseId');
     res.json({ success: true, data: { user, student } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.promote = async (req, res, next) => {
+  try {
+    const userId = req.params.id;
+    const student = await Student.findOne({ userId }).populate('courseId');
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student profile not found' });
+    }
+
+    const totalYears = parseDurationYears(student.courseId?.duration);
+    const currentYear = Number(student.studyYear || 1);
+    if (currentYear >= totalYears) {
+      return res.status(400).json({
+        success: false,
+        message: `Student is already in final year (${totalYears})`,
+      });
+    }
+
+    student.studyYear = currentYear + 1;
+    if (req.body && typeof req.body.batch === 'string' && req.body.batch.trim()) {
+      student.batch = req.body.batch.trim();
+    }
+    await student.save();
+
+    const updated = await Student.findById(student._id).populate('courseId');
+    res.json({
+      success: true,
+      message: `Promoted to year ${updated.studyYear}`,
+      data: updated,
+    });
   } catch (err) {
     next(err);
   }
