@@ -19,6 +19,19 @@ const parseDurationMonths = (duration) => {
   return 12;
 };
 
+const getCurrentCycleWindow = (basis, now = new Date()) => {
+  if (basis === 'monthly') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { start, end };
+  }
+  const month = now.getMonth(); // 0-11
+  const semesterStartMonth = month < 6 ? 0 : 6;
+  const start = new Date(now.getFullYear(), semesterStartMonth, 1);
+  const end = new Date(now.getFullYear(), semesterStartMonth + 6, 1);
+  return { start, end };
+};
+
 const resolveCycleFees = ({ student, courseFee, basis, totalCycles }) => {
   const defaultCycleFee = totalCycles > 0 ? Number((courseFee / totalCycles).toFixed(2)) : Number(courseFee || 0);
   const rawFirst = Number(student.firstYearFee ?? 0);
@@ -188,6 +201,14 @@ exports.getStudentFee = async (req, res, next) => {
       basis: feeCollectionBasis,
       totalCycles,
     });
+    const { start: cycleStart, end: cycleEnd } = getCurrentCycleWindow(feeCollectionBasis);
+    const currentCycleReceived = payments
+      .filter((p) => {
+        const d = new Date(p.date);
+        return d >= cycleStart && d < cycleEnd;
+      })
+      .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const currentCycleDue = Math.max(0, Number(currentFee || 0) - currentCycleReceived);
     const cycleLabel = feeCollectionBasis === 'monthly' ? 'month' : 'semester';
     const collectionPlan = {
       basis: feeCollectionBasis,
@@ -196,6 +217,8 @@ exports.getStudentFee = async (req, res, next) => {
       duration: student.courseId?.duration || '',
       firstCycleFee: firstYearFee,
       currentCycleFee: currentFee,
+      currentCycleReceived,
+      currentCycleDue,
       receivedAmount: totalPaid,
       remainingAmount: Number(student.dueAmount || 0),
     };
