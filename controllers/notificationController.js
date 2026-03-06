@@ -6,7 +6,7 @@ exports.list = async (req, res, next) => {
     if (req.user.role === 'superadmin' || req.user.role === 'admin') {
       // can see all or filter by receiver
     } else {
-      filter.$or = [{ receiverId: req.user.id }, { receiverRole: req.user.role }];
+      filter.$or = [{ receiverId: req.user.id }, { receiverRole: req.user.role }, { receiverRole: 'all' }];
     }
     const list = await Notification.find(filter)
       .populate('receiverId', 'name email')
@@ -23,11 +23,15 @@ exports.list = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const { title, message, receiverId, receiverRole, type } = req.body;
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    const resolvedReceiverRole = isSuperAdmin
+      ? (receiverRole || 'all')
+      : (receiverRole || undefined);
     const notif = await Notification.create({
       title,
       message,
       receiverId: receiverId || undefined,
-      receiverRole: receiverRole || undefined,
+      receiverRole: resolvedReceiverRole,
       type: type || 'inapp',
       sentBy: req.user.id,
     });
@@ -69,7 +73,7 @@ exports.markRead = async (req, res, next) => {
 exports.getMyNotifications = async (req, res, next) => {
   try {
     const list = await Notification.find({
-      $or: [{ receiverId: req.user.id }, { receiverRole: req.user.role }],
+      $or: [{ receiverId: req.user.id }, { receiverRole: req.user.role }, { receiverRole: 'all' }],
     })
       .populate('sentBy', 'name')
       .sort({ createdAt: -1 })
