@@ -50,6 +50,18 @@ const getDefaultCycleFee = (course) => {
   return cycles > 0 ? Number((totalFee / cycles).toFixed(2)) : totalFee;
 };
 
+const generateStudentCode = async () => {
+  const year = new Date().getFullYear();
+  const prefix = `GAI-${year}-`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const used = await Student.countDocuments({ studentCode: { $regex: `^${prefix}` } });
+    const candidate = `${prefix}${String(used + 1 + attempt).padStart(4, '0')}`;
+    const exists = await Student.exists({ studentCode: candidate });
+    if (!exists) return candidate;
+  }
+  return `${prefix}${Date.now().toString().slice(-6)}`;
+};
+
 exports.list = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -74,11 +86,15 @@ exports.list = async (req, res, next) => {
       User.countDocuments(filter),
     ]);
     const studentIds = students.map((s) => s._id);
-    const studentProfiles = await Student.find({ userId: { $in: studentIds } })
-      .populate('courseId')
-      .lean();
+    const studentProfiles = await Student.find({ userId: { $in: studentIds } }).populate('courseId');
+    await Promise.all(studentProfiles.map(async (profile) => {
+      if (!profile.studentCode) {
+        profile.studentCode = await generateStudentCode();
+        await profile.save();
+      }
+    }));
     const map = {};
-    studentProfiles.forEach((p) => { map[p.userId.toString()] = p; });
+    studentProfiles.forEach((p) => { map[p.userId.toString()] = p.toObject(); });
     const list = students.map((u) => ({
       ...u.toObject(),
       studentProfile: map[u._id.toString()] || null,
@@ -113,6 +129,7 @@ exports.create = async (req, res, next) => {
     );
     await Student.create({
       userId: user._id,
+      studentCode: await generateStudentCode(),
       courseId,
       studyYear: initialStudyYear,
       firstYearFee: defaultCycleFee,
@@ -197,6 +214,10 @@ exports.getOne = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
     const student = await Student.findOne({ userId: user._id }).populate('courseId');
+    if (student && !student.studentCode) {
+      student.studentCode = await generateStudentCode();
+      await student.save();
+    }
     res.json({ success: true, data: { user, student } });
   } catch (err) {
     next(err);

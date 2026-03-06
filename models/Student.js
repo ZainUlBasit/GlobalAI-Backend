@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const studentSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    studentCode: { type: String, unique: true, sparse: true },
     courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
     studyYear: { type: Number, default: 1, min: 1 },
     firstYearFee: { type: Number, default: 0 },
@@ -17,6 +18,7 @@ const studentSchema = new mongoose.Schema(
 );
 
 studentSchema.index({ userId: 1 });
+studentSchema.index({ studentCode: 1 }, { unique: true, sparse: true });
 studentSchema.index({ courseId: 1, batch: 1, section: 1 });
 
 module.exports = mongoose.model('Student', studentSchema);
