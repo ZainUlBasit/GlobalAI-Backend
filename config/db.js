@@ -17,6 +17,20 @@ const connectDB = async () => {
     connectionPromise = mongoose.connect(process.env.MONGODB_URI);
     await connectionPromise;
     console.log('MongoDB connected');
+
+    const User = require('../models/User');
+    const Attendance = require('../models/Attendance');
+    const [userMigration, attendanceMigration] = await Promise.all([
+      User.updateMany({ role: 'accountant' }, { $set: { role: 'admin' } }),
+      Attendance.updateMany({ role: 'accountant' }, { $set: { role: 'admin' } }),
+    ]);
+    if (userMigration.modifiedCount > 0) {
+      console.log(`Migrated ${userMigration.modifiedCount} accountant user(s) to admin`);
+    }
+    if (attendanceMigration.modifiedCount > 0) {
+      console.log(`Migrated ${attendanceMigration.modifiedCount} accountant attendance record(s) to admin`);
+    }
+
     return mongoose.connection;
   } catch (err) {
     connectionPromise = null;

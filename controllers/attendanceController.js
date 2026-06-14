@@ -25,7 +25,7 @@ exports.checkIn = async (req, res, next) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const roleMap = { superadmin: 'admin', admin: 'admin', accountant: 'accountant', teacher: 'teacher', student: 'student' };
+    const roleMap = { superadmin: 'admin', admin: 'admin', teacher: 'teacher', student: 'student' };
     const role = roleMap[req.user.role] || 'admin';
     let record = await Attendance.findOne({ userId: req.user.id, date: today });
     if (record) {

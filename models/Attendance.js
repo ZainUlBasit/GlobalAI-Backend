@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const attendanceSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { type: String, enum: ['student', 'teacher', 'admin', 'accountant'], required: true },
+    role: { type: String, enum: ['student', 'teacher', 'admin'], required: true },
     checkIn: { type: Date },
     checkOut: { type: Date },
     checkInImage: { type: String, default: '' },

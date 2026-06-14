@@ -66,21 +66,67 @@ exports.list = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.search || '';
+    const search = (req.query.search || '').trim();
+    const nameQuery = (req.query.name || '').trim();
+    const fatherQuery = (req.query.fatherName || '').trim();
+    const courseId = req.query.courseId;
+    const batch = (req.query.batch || '').trim();
     const skip = (page - 1) * limit;
+
+    let userIdsFromProfile = null;
+    if (courseId || batch) {
+      const profileFilter = {};
+      if (courseId) profileFilter.courseId = courseId;
+      if (batch) profileFilter.batch = batch;
+      const profiles = await Student.find(profileFilter).select('userId').lean();
+      userIdsFromProfile = profiles.map((p) => p.userId);
+      if (userIdsFromProfile.length === 0) {
+        return res.json({ success: true, data: [], total: 0, page, pages: 0 });
+      }
+    }
+
     const filter = {
       role: 'student',
       $or: [{ status: 'active' }, { status: { $exists: false } }, { status: null }],
     };
+
+    if (userIdsFromProfile) {
+      filter._id = { $in: userIdsFromProfile };
+    }
+
     if (search) {
+      const regex = new RegExp(search, 'i');
+      const fatherMatches = await Student.find({ fatherName: regex }).select('userId').lean();
+      const fatherUserIds = fatherMatches.map((s) => s.userId);
       filter.$and = filter.$and || [];
       filter.$and.push({
         $or: [
-          { name: new RegExp(search, 'i') },
-          { email: new RegExp(search, 'i') },
+          { name: regex },
+          { email: regex },
+          ...(fatherUserIds.length ? [{ _id: { $in: fatherUserIds } }] : []),
         ],
       });
     }
+
+    if (nameQuery) {
+      const regex = new RegExp(nameQuery, 'i');
+      filter.$and = filter.$and || [];
+      filter.$and.push({
+        $or: [{ name: regex }, { email: regex }],
+      });
+    }
+
+    if (fatherQuery) {
+      const regex = new RegExp(fatherQuery, 'i');
+      const fatherMatches = await Student.find({ fatherName: regex }).select('userId').lean();
+      const fatherUserIds = fatherMatches.map((s) => s.userId);
+      if (fatherUserIds.length === 0) {
+        return res.json({ success: true, data: [], total: 0, page, pages: 0 });
+      }
+      filter.$and = filter.$and || [];
+      filter.$and.push({ _id: { $in: fatherUserIds } });
+    }
+
     const [students, total] = await Promise.all([
       User.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
       User.countDocuments(filter),
@@ -107,19 +153,34 @@ exports.list = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { name, email, password, courseId, batch, section, shift, studyYear } = req.body;
+    const {
+      name,
+      email,
+      password,
+      courseId,
+      batch,
+      section,
+      shift,
+      studyYear,
+      fatherName,
+      contact,
+      discount,
+    } = req.body;
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email already exists' });
     }
     const course = await Course.findById(courseId);
-    const courseFee = course ? (course.fee ?? 0) : 0;
+    const courseFee = course ? Number(course.fee ?? 0) : 0;
+    const discountAmount = Math.max(0, Math.min(Number(discount) || 0, courseFee));
+    const netFee = Math.max(0, courseFee - discountAmount);
     const defaultCycleFee = getDefaultCycleFee(course);
     const user = await User.create({
       name,
       email,
       password: password || 'student123',
       role: 'student',
+      contact: contact || '',
       status: 'active',
     });
     const totalYears = parseDurationYears(course?.duration);
@@ -130,14 +191,17 @@ exports.create = async (req, res, next) => {
     await Student.create({
       userId: user._id,
       studentCode: await generateStudentCode(),
+      fatherName: fatherName || '',
       courseId,
       studyYear: initialStudyYear,
       firstYearFee: defaultCycleFee,
       currentTermFee: defaultCycleFee,
+      courseFeeAtEnrollment: courseFee,
+      discount: discountAmount,
       batch,
       section: section || '',
       shift: shift || 'morning',
-      dueAmount: courseFee,
+      dueAmount: netFee,
     });
     const created = await User.findById(user._id).select('-password');
     const student = await Student.findOne({ userId: user._id }).populate('courseId');
@@ -149,7 +213,7 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const { name, contact, address, courseId, batch, section, shift, dueAmount, studyYear } = req.body;
+    const { name, contact, address, courseId, batch, section, shift, dueAmount, studyYear, fatherName } = req.body;
     const userId = req.params.id;
     const user = await User.findById(userId);
     if (!user || user.role !== 'student') {
@@ -162,6 +226,7 @@ exports.update = async (req, res, next) => {
 
     const student = await Student.findOne({ userId });
     if (student) {
+      if (fatherName !== undefined) student.fatherName = fatherName;
       if (courseId) {
         const courseChanged = String(student.courseId) !== String(courseId);
         student.courseId = courseId;

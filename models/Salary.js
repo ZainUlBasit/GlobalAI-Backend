@@ -6,7 +6,7 @@ const salarySchema = new mongoose.Schema(
     date: { type: Date, default: Date.now },
     description: { type: String, default: '' },
     referenceId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    employeeType: { type: String, required: true }, // admin | accountant | teacher
+    employeeType: { type: String, required: true }, // admin | teacher
     employeeName: { type: String, required: true },
     addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

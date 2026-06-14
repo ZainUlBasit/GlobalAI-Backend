@@ -8,9 +8,9 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     role: {
       type: String,
-      enum: ['superadmin', 'admin', 'accountant', 'teacher', 'student'],
+      enum: ['superadmin', 'admin', 'teacher', 'student'],
       required: true,
-      // superadmin: only via seed; admin/accountant/teacher/student: added by superadmin
+      // superadmin: only via seed; admin/teacher/student: added by superadmin
     },
     contact: { type: String, default: '' },
     address: { type: String, default: '' },

@@ -8,7 +8,7 @@ const Attendance = require('../models/Attendance');
 exports.getStats = async (req, res, next) => {
   try {
     const studentCount = await User.countDocuments({ role: 'student', status: 'active' });
-    const employeeCount = await User.countDocuments({ role: { $in: ['admin', 'accountant'] }, status: 'active' });
+    const employeeCount = await User.countDocuments({ role: 'admin', status: 'active' });
     const teacherCount = await User.countDocuments({ role: 'teacher', status: 'active' });
 
     const incomeAgg = await Transaction.aggregate([
@@ -21,12 +21,42 @@ exports.getStats = async (req, res, next) => {
     ]);
     const totalIncome = incomeAgg[0]?.total || 0;
     const totalExpense = expenseAgg[0]?.total || 0;
+    const balance = totalIncome - totalExpense;
 
     const studentsWithDue = await Student.aggregate([
       { $match: { dueAmount: { $gt: 0 } } },
       { $group: { _id: null, total: { $sum: '$dueAmount' } } },
     ]);
     const pendingDues = studentsWithDue[0]?.total || 0;
+
+    const duesByCourse = await Student.aggregate([
+      { $match: { dueAmount: { $gt: 0 } } },
+      {
+        $group: {
+          _id: '$courseId',
+          totalDue: { $sum: '$dueAmount' },
+          studentCount: { $sum: 1 },
+        },
+      },
+      {
+        $lookup: {
+          from: 'courses',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'course',
+        },
+      },
+      { $unwind: { path: '$course', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          courseId: '$_id',
+          courseName: { $ifNull: ['$course.name', 'Unknown course'] },
+          totalDue: 1,
+          studentCount: 1,
+        },
+      },
+      { $sort: { totalDue: -1 } },
+    ]);
 
     res.json({
       success: true,
@@ -36,7 +66,9 @@ exports.getStats = async (req, res, next) => {
         totalTeachers: teacherCount,
         totalIncome,
         totalExpense,
+        balance,
         pendingDues,
+        duesByCourse,
       },
     });
   } catch (err) {

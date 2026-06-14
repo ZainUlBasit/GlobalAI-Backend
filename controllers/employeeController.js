@@ -7,7 +7,10 @@ exports.list = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
     const skip = (page - 1) * limit;
-    const filter = { role: { $in: ['admin', 'accountant', 'teacher'] }, status: 'active' };
+    const filter = { role: { $in: ['admin', 'teacher'] }, status: 'active' };
+    if (req.query.role && ['admin', 'teacher'].includes(req.query.role)) {
+      filter.role = req.query.role;
+    }
     if (search) {
       filter.$or = [
         { name: new RegExp(search, 'i') },
@@ -36,9 +39,9 @@ exports.list = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const { name, email, password, role, contact, address } = req.body;
-    const allowedRoles = ['admin', 'accountant', 'teacher'];
+    const allowedRoles = ['admin', 'teacher'];
     if (!role || !allowedRoles.includes(role)) {
-      return res.status(400).json({ success: false, message: 'Invalid role. Only admin, accountant, and teacher can be added.' });
+      return res.status(400).json({ success: false, message: 'Invalid role. Only admin and teacher can be added.' });
     }
     if (role === 'superadmin') {
       return res.status(403).json({ success: false, message: 'Super admin accounts cannot be created from here.' });
@@ -80,7 +83,7 @@ exports.update = async (req, res, next) => {
     if (role === 'superadmin') {
       return res.status(403).json({ success: false, message: 'Cannot change role to super admin.' });
     }
-    if (role && ['admin', 'accountant', 'teacher'].includes(role)) user.role = role;
+    if (role && ['admin', 'teacher'].includes(role)) user.role = role;
     if (contact !== undefined) user.contact = contact;
     if (address !== undefined) user.address = address;
     await user.save();

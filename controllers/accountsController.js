@@ -42,6 +42,66 @@ const resolveCycleFees = ({ student, courseFee, basis, totalCycles }) => {
   return { firstYearFee, currentFee };
 };
 
+const getPeriodRange = (period) => {
+  const now = new Date();
+  let start;
+  let end;
+  if (period === 'daily') {
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start);
+    end.setDate(end.getDate() + 1);
+  } else if (period === 'yearly') {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = new Date(now.getFullYear() + 1, 0, 1);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  }
+  return { start, end };
+};
+
+const sumTransactions = async (types, start, end) => {
+  const filter = { type: { $in: types }, date: { $gte: start, $lt: end } };
+  const result = await Transaction.aggregate([
+    { $match: filter },
+    { $group: { _id: null, total: { $sum: '$amount' } } },
+  ]);
+  return result[0]?.total || 0;
+};
+
+const getDuesByCourse = async () => {
+  const rows = await Student.aggregate([
+    { $match: { dueAmount: { $gt: 0 } } },
+    {
+      $group: {
+        _id: '$courseId',
+        totalDue: { $sum: '$dueAmount' },
+        studentCount: { $sum: 1 },
+      },
+    },
+    {
+      $lookup: {
+        from: 'courses',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'course',
+      },
+    },
+    { $unwind: { path: '$course', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        courseId: '$_id',
+        courseName: { $ifNull: ['$course.name', 'Unknown course'] },
+        totalDue: 1,
+        studentCount: 1,
+      },
+    },
+    { $sort: { totalDue: -1 } },
+  ]);
+  return rows;
+};
+
 exports.getIncome = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
@@ -282,6 +342,40 @@ exports.updateDue = async (req, res, next) => {
   }
 };
 
+exports.getDashboardSummary = async (req, res, next) => {
+  try {
+    const period = ['daily', 'monthly', 'yearly'].includes(req.query.period) ? req.query.period : 'monthly';
+    const { start, end } = getPeriodRange(period);
+    const [totalIncome, totalExpense, totalSalary, pendingAgg, duesByCourse] = await Promise.all([
+      sumTransactions(['income', 'fee'], start, end),
+      sumTransactions(['expense'], start, end),
+      sumTransactions(['salary'], start, end),
+      Student.aggregate([
+        { $match: { dueAmount: { $gt: 0 } } },
+        { $group: { _id: null, total: { $sum: '$dueAmount' } } },
+      ]),
+      getDuesByCourse(),
+    ]);
+    const totalExpenseWithSalary = totalExpense + totalSalary;
+    const balance = totalIncome - totalExpenseWithSalary;
+    res.json({
+      success: true,
+      data: {
+        period,
+        totalIncome,
+        totalExpense: totalExpenseWithSalary,
+        totalSalary,
+        operatingExpense: totalExpense,
+        balance,
+        pendingDues: pendingAgg[0]?.total || 0,
+        duesByCourse,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getTodaySummary = async (req, res, next) => {
   try {
     const start = new Date();
@@ -314,15 +408,49 @@ exports.getTodaySummary = async (req, res, next) => {
       { $match: { type: 'salary', date: { $gte: monthStart, $lte: monthEnd } } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
+    const monthIncomeTotal = monthIncome[0]?.total || 0;
+    const monthExpenseTotal = (monthExpense[0]?.total || 0) + (monthSalary[0]?.total || 0);
     res.json({
       success: true,
       data: {
         todayIncome: income[0]?.total || 0,
         todayExpense: expense[0]?.total || 0,
         todaySalary: salary[0]?.total || 0,
-        monthlyProfit: (monthIncome[0]?.total || 0) - (monthExpense[0]?.total || 0) - (monthSalary[0]?.total || 0),
+        monthlyProfit: monthIncomeTotal - monthExpenseTotal,
+        monthlyBalance: monthIncomeTotal - monthExpenseTotal,
+        monthlyIncome: monthIncomeTotal,
+        monthlyExpense: monthExpenseTotal,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getDuesList = async (req, res, next) => {
+  try {
+    const students = await Student.find({
+      $expr: { $gt: [{ $ifNull: [{ $toDouble: '$dueAmount' }, 0] }, 0] },
+    })
+      .populate('userId', 'name email')
+      .populate('courseId', 'name')
+      .sort({ dueAmount: -1 })
+      .lean();
+
+    const totalPending = students.reduce((sum, s) => sum + (Number(s.dueAmount) || 0), 0);
+    const list = students.map((s) => ({
+      _id: s._id,
+      userId: s.userId?._id,
+      name: s.userId?.name ?? '—',
+      email: s.userId?.email ?? '—',
+      fatherName: s.fatherName || '—',
+      studentCode: s.studentCode || '—',
+      batch: s.batch || '—',
+      courseName: s.courseId?.name ?? '—',
+      dueAmount: Number(s.dueAmount) || 0,
+    }));
+
+    res.json({ success: true, data: list, totalPending });
   } catch (err) {
     next(err);
   }

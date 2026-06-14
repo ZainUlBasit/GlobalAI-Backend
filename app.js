@@ -39,6 +39,8 @@ app.use('/api/v1/classes', require('./routes/classRoutes'));
 app.use('/api/v1/batches', require('./routes/batchRoutes'));
 app.use('/api/v1/timetable', require('./routes/timetableRoutes'));
 app.use('/api/v1/subjects', require('./routes/subjectRoutes'));
+app.use('/api/v1/certificates', require('./routes/certificateRoutes'));
+app.use('/api/v1/institute', require('./routes/instituteRoutes'));
 
 app.use(errorHandler);
 

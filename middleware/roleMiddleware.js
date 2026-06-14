@@ -1,6 +1,6 @@
 const protect = require('./auth');
 
-const ROLES = ['superadmin', 'admin', 'accountant', 'teacher', 'student'];
+const ROLES = ['superadmin', 'admin', 'teacher', 'student'];
 
 const authorize = (...allowedRoles) => {
   return (req, res, next) => {
@@ -16,7 +16,6 @@ const authorize = (...allowedRoles) => {
 
 const isSuperAdmin = authorize('superadmin');
 const isAdmin = authorize('superadmin', 'admin');
-const isAccountant = authorize('superadmin', 'admin', 'accountant');
 const isTeacher = authorize('superadmin', 'admin', 'teacher');
 const isStudent = authorize('student');
 
@@ -25,7 +24,6 @@ module.exports = {
   authorize,
   isSuperAdmin,
   isAdmin,
-  isAccountant,
   isTeacher,
   isStudent,
   ROLES,
