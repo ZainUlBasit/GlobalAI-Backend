@@ -4,6 +4,15 @@ const Teacher = require('../models/Teacher');
 const Course = require('../models/Course');
 const Transaction = require('../models/Transaction');
 const Attendance = require('../models/Attendance');
+const Institute = require('../models/Institute');
+
+async function getOrCreateInstitute() {
+  let doc = await Institute.findOne();
+  if (!doc) {
+    doc = await Institute.create({});
+  }
+  return doc;
+}
 
 exports.getStats = async (req, res, next) => {
   try {
@@ -71,6 +80,48 @@ exports.getStats = async (req, res, next) => {
         duesByCourse,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAccountsVerification = async (req, res, next) => {
+  try {
+    const doc = await getOrCreateInstitute();
+    res.json({ success: true, data: doc.accountsVerification || {} });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.setAccountsVerification = async (req, res, next) => {
+  try {
+    const { type, verifiedUntil } = req.body;
+    const allowed = ['income', 'expense', 'dues'];
+    if (!allowed.includes(type)) {
+      return res.status(400).json({ success: false, message: 'Invalid verification type' });
+    }
+    if (!verifiedUntil) {
+      return res.status(400).json({ success: false, message: 'verifiedUntil date is required' });
+    }
+    const until = new Date(verifiedUntil);
+    if (Number.isNaN(until.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+    until.setHours(23, 59, 59, 999);
+
+    const doc = await getOrCreateInstitute();
+    if (!doc.accountsVerification) {
+      doc.accountsVerification = { income: {}, expense: {}, dues: {} };
+    }
+    doc.accountsVerification[type] = {
+      verifiedUntil: until,
+      verifiedAt: new Date(),
+    };
+    doc.markModified('accountsVerification');
+    await doc.save();
+
+    res.json({ success: true, data: doc.accountsVerification });
   } catch (err) {
     next(err);
   }

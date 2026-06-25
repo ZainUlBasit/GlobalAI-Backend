@@ -9,6 +9,20 @@ const instituteSchema = new mongoose.Schema(
     email: { type: String, default: '', trim: true },
     receiptFooter: { type: String, default: 'Thank you for your payment.', trim: true },
     currency: { type: String, default: 'PKR', trim: true },
+    accountsVerification: {
+      income: {
+        verifiedUntil: { type: Date, default: null },
+        verifiedAt: { type: Date, default: null },
+      },
+      expense: {
+        verifiedUntil: { type: Date, default: null },
+        verifiedAt: { type: Date, default: null },
+      },
+      dues: {
+        verifiedUntil: { type: Date, default: null },
+        verifiedAt: { type: Date, default: null },
+      },
+    },
   },
   { timestamps: true }
 );

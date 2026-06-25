@@ -64,8 +64,9 @@ const generateStudentCode = async () => {
 
 exports.list = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const exportAll = req.query.all === 'true' || req.query.exportAll === 'true';
+    const page = exportAll ? 1 : (parseInt(req.query.page) || 1);
+    const limit = exportAll ? 10000 : (parseInt(req.query.limit) || 10);
     const search = (req.query.search || '').trim();
     const nameQuery = (req.query.name || '').trim();
     const fatherQuery = (req.query.fatherName || '').trim();
