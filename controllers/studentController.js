@@ -167,23 +167,27 @@ exports.create = async (req, res, next) => {
       contact,
       discount,
     } = req.body;
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(400).json({ success: false, message: 'Email already exists' });
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    if (normalizedEmail) {
+      const existing = await User.findOne({ email: normalizedEmail });
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'Email already exists' });
+      }
     }
     const course = await Course.findById(courseId);
     const courseFee = course ? Number(course.fee ?? 0) : 0;
     const discountAmount = Math.max(0, Math.min(Number(discount) || 0, courseFee));
     const netFee = Math.max(0, courseFee - discountAmount);
     const defaultCycleFee = getDefaultCycleFee(course);
-    const user = await User.create({
+    const userPayload = {
       name,
-      email,
       password: password || 'student123',
       role: 'student',
       contact: contact || '',
       status: 'active',
-    });
+    };
+    if (normalizedEmail) userPayload.email = normalizedEmail;
+    const user = await User.create(userPayload);
     const totalYears = parseDurationYears(course?.duration);
     const initialStudyYear = Math.min(
       Math.max(Number(studyYear) > 0 ? Number(studyYear) : 1, 1),

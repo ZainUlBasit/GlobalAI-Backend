@@ -39,6 +39,10 @@ exports.list = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const { name, email, password, role, contact, address } = req.body;
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
     const allowedRoles = ['admin', 'teacher'];
     if (!role || !allowedRoles.includes(role)) {
       return res.status(400).json({ success: false, message: 'Invalid role. Only admin and teacher can be added.' });
@@ -46,13 +50,13 @@ exports.create = async (req, res, next) => {
     if (role === 'superadmin') {
       return res.status(403).json({ success: false, message: 'Super admin accounts cannot be created from here.' });
     }
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email already exists' });
     }
     const user = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       password: password || 'employee123',
       role,
       contact: contact || '',
