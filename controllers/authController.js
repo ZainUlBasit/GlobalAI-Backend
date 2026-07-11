@@ -10,12 +10,30 @@ const generateToken = (id) =>
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email }).select('+password');
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    // Match exact lowercase first, then case-insensitive for older records
+    let user = await User.findOne({ email: normalizedEmail }).select('+password');
+    if (!user) {
+      const escaped = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      user = await User.findOne({
+        email: { $regex: new RegExp(`^${escaped}$`, 'i') },
+      }).select('+password');
+    }
+
     if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
     if (user.status !== 'active') {
       return res.status(401).json({ success: false, message: 'Account inactive' });
+    }
+
+    // Normalize stored email if it was mixed-case (avoid re-hashing password)
+    if (user.email && user.email !== normalizedEmail) {
+      await User.updateOne({ _id: user._id }, { $set: { email: normalizedEmail } });
     }
     const token = generateToken(user._id);
     const profile = await User.findById(user._id).select('-password');
