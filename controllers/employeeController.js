@@ -79,10 +79,13 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const { name, role, contact, address, assignedCourses, salary } = req.body;
+    const { name, role, contact, address, assignedCourses, salary, password } = req.body;
     const userId = req.params.id;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (user.role === 'superadmin') {
+      return res.status(403).json({ success: false, message: 'Cannot update superadmin' });
+    }
     if (name) user.name = name;
     if (role === 'superadmin') {
       return res.status(403).json({ success: false, message: 'Cannot change role to super admin.' });
@@ -90,6 +93,15 @@ exports.update = async (req, res, next) => {
     if (role && ['admin', 'teacher'].includes(role)) user.role = role;
     if (contact !== undefined) user.contact = contact;
     if (address !== undefined) user.address = address;
+
+    const nextPassword = password != null ? String(password).trim() : '';
+    if (nextPassword) {
+      if (nextPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      }
+      user.password = nextPassword;
+    }
+
     await user.save();
 
     if (user.role === 'teacher') {
@@ -103,7 +115,11 @@ exports.update = async (req, res, next) => {
     const teacher = user.role === 'teacher'
       ? await Teacher.findOne({ userId }).populate('assignedCourses')
       : null;
-    res.json({ success: true, data: { user: updated, teacher } });
+    res.json({
+      success: true,
+      message: nextPassword ? 'Employee updated and password reset' : 'Employee updated',
+      data: { user: updated, teacher },
+    });
   } catch (err) {
     next(err);
   }
