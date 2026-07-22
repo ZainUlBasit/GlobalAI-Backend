@@ -10,6 +10,8 @@ const transactionSchema = new mongoose.Schema(
     date: { type: Date, default: Date.now },
     billImage: { type: String, default: '' },
     addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    paymentCategory: { type: String, enum: ['tuition', 'exam', 'salary', 'income', 'expense', 'other'], default: 'other' },
   },
   { timestamps: true }
 );

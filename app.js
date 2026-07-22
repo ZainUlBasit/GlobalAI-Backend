@@ -41,6 +41,7 @@ app.use('/api/v1/timetable', require('./routes/timetableRoutes'));
 app.use('/api/v1/subjects', require('./routes/subjectRoutes'));
 app.use('/api/v1/certificates', require('./routes/certificateRoutes'));
 app.use('/api/v1/institute', require('./routes/instituteRoutes'));
+app.use('/api/v1/audit-logs', require('./routes/auditRoutes'));
 
 app.use(errorHandler);
 

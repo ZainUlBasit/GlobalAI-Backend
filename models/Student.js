@@ -11,11 +11,23 @@ const studentSchema = new mongoose.Schema(
     currentTermFee: { type: Number, default: 0 },
     courseFeeAtEnrollment: { type: Number, default: 0 },
     discount: { type: Number, default: 0, min: 0 },
+    examFeeDue: { type: Number, default: 0, min: 0 },
+    examFeePaid: { type: Number, default: 0, min: 0 },
+    feeCredit: { type: Number, default: 0, min: 0 },
     batch: { type: String, required: true },
     section: { type: String, default: '' },
     shift: { type: String, enum: ['morning', 'evening'], default: 'morning' },
     dueAmount: { type: Number, default: 0 },
     enrollmentDate: { type: Date, default: Date.now },
+    academicStatus: {
+      type: String,
+      enum: ['active', 'struck_off', 'graduated', 'transferred', 'withdrawn'],
+      default: 'active',
+    },
+    struckOffAt: { type: Date, default: null },
+    struckOffReason: { type: String, default: '' },
+    previousCourseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', default: null },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );
@@ -23,5 +35,6 @@ const studentSchema = new mongoose.Schema(
 studentSchema.index({ userId: 1 });
 studentSchema.index({ studentCode: 1 }, { unique: true, sparse: true });
 studentSchema.index({ courseId: 1, batch: 1, section: 1 });
+studentSchema.index({ academicStatus: 1 });
 
 module.exports = mongoose.model('Student', studentSchema);

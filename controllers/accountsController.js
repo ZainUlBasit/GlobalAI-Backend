@@ -3,6 +3,7 @@ const Salary = require('../models/Salary');
 const User = require('../models/User');
 const Student = require('../models/Student');
 const FeePayment = require('../models/FeePayment');
+const { writeAuditLog } = require('../utils/auditLog');
 
 const parseDurationMonths = (duration) => {
   const text = String(duration || '').toLowerCase();
@@ -109,7 +110,7 @@ exports.getIncome = async (req, res, next) => {
     if (startDate && endDate) {
       filter.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
-    const list = await Transaction.find(filter).populate('addedBy', 'name').sort({ date: -1 }).limit(500).lean();
+    const list = await Transaction.find(filter).populate('addedBy', 'name').populate('createdBy', 'name').sort({ date: -1 }).limit(500).lean();
     const total = await Transaction.aggregate([
       { $match: filter },
       { $group: { _id: null, sum: { $sum: '$amount' } } },
@@ -127,7 +128,7 @@ exports.getExpenses = async (req, res, next) => {
     if (startDate && endDate) {
       filter.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
-    const list = await Transaction.find(filter).populate('addedBy', 'name').sort({ date: -1 }).limit(500).lean();
+    const list = await Transaction.find(filter).populate('addedBy', 'name').populate('createdBy', 'name').sort({ date: -1 }).limit(500).lean();
     const total = await Transaction.aggregate([
       { $match: filter },
       { $group: { _id: null, sum: { $sum: '$amount' } } },
@@ -146,6 +147,8 @@ exports.addIncome = async (req, res, next) => {
       amount,
       description: description || '',
       addedBy: req.user.id,
+      createdBy: req.user.id,
+      paymentCategory: 'income',
     });
     res.status(201).json({ success: true, data: tx });
   } catch (err) {
@@ -163,6 +166,8 @@ exports.addExpense = async (req, res, next) => {
       description: description || '',
       billImage,
       addedBy: req.user.id,
+      createdBy: req.user.id,
+      paymentCategory: 'expense',
     });
     res.status(201).json({ success: true, data: tx });
   } catch (err) {
@@ -197,6 +202,8 @@ exports.recordSalary = async (req, res, next) => {
       referenceId,
       refModel: 'User',
       addedBy: req.user.id,
+      createdBy: req.user.id,
+      paymentCategory: 'salary',
     });
     res.status(201).json({ success: true, data: salaryDoc });
   } catch (err) {
@@ -238,8 +245,29 @@ exports.getReports = async (req, res, next) => {
       { $match: filter },
       { $group: { _id: '$type', total: { $sum: '$amount' }, count: { $sum: 1 } } },
     ]);
-    const list = await Transaction.find(filter).populate('addedBy', 'name').sort({ date: -1 }).limit(200).lean();
-    res.json({ success: true, data: { summary: data, list } });
+    const examFeeAgg = await Transaction.aggregate([
+      { $match: { ...filter, type: 'fee', paymentCategory: 'exam' } },
+      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ]);
+    const tuitionFeeAgg = await Transaction.aggregate([
+      { $match: { ...filter, type: 'fee', paymentCategory: { $ne: 'exam' } } },
+      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    ]);
+    const list = await Transaction.find(filter)
+      .populate('addedBy', 'name')
+      .populate('createdBy', 'name')
+      .sort({ date: -1 })
+      .limit(200)
+      .lean();
+    res.json({
+      success: true,
+      data: {
+        summary: data,
+        examFeeSummary: examFeeAgg[0] || { total: 0, count: 0 },
+        tuitionFeeSummary: tuitionFeeAgg[0] || { total: 0, count: 0 },
+        list,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -249,10 +277,24 @@ exports.getStudentFee = async (req, res, next) => {
   try {
     const student = await Student.findOne({ userId: req.params.studentId }).populate('courseId');
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-    const payments = await FeePayment.find({ studentId: student._id }).sort({ date: -1 }).lean();
+    const payments = await FeePayment.find({ studentId: student._id })
+      .populate('paidBy', 'name')
+      .populate('createdBy', 'name')
+      .sort({ date: -1 })
+      .lean();
     const courseFee = student.courseId?.fee ?? 0;
+    const examFeeCourse = Number(student.courseId?.examFee || 0);
     const feeCollectionBasis = student.courseId?.feeCollectionBasis || 'semester';
-    const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const tuitionPaid = payments
+      .filter((p) => p.paymentCategory !== 'exam')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+    const examPaidFromPayments = payments
+      .filter((p) => p.paymentCategory === 'exam')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalPaid = tuitionPaid + examPaidFromPayments;
+    const examFeeTotal = Number(student.examFeeDue ?? examFeeCourse ?? 0);
+    const examFeePaid = Number(student.examFeePaid ?? examPaidFromPayments ?? 0);
+    const examFeeRemaining = Math.max(0, examFeeTotal - examFeePaid);
     const durationMonths = parseDurationMonths(student.courseId?.duration);
     const totalCycles = feeCollectionBasis === 'monthly' ? durationMonths : Math.max(Math.ceil(durationMonths / 6), 1);
     const { firstYearFee, currentFee } = resolveCycleFees({
@@ -263,6 +305,7 @@ exports.getStudentFee = async (req, res, next) => {
     });
     const { start: cycleStart, end: cycleEnd } = getCurrentCycleWindow(feeCollectionBasis);
     const currentCycleReceived = payments
+      .filter((p) => p.paymentCategory !== 'exam')
       .filter((p) => {
         const d = new Date(p.date);
         return d >= cycleStart && d < cycleEnd;
@@ -293,6 +336,10 @@ exports.getStudentFee = async (req, res, next) => {
         firstYearFee,
         currentFee,
         totalPaid,
+        tuitionPaid,
+        examFeeTotal,
+        examFeePaid,
+        examFeeRemaining,
         collectionPlan,
       },
     });
@@ -303,27 +350,73 @@ exports.getStudentFee = async (req, res, next) => {
 
 exports.addFeePayment = async (req, res, next) => {
   try {
-    const { studentId, amount } = req.body;
-    const student = await Student.findOne({ userId: studentId });
+    const { studentId, amount, paymentCategory = 'tuition', notes } = req.body;
+    const category = paymentCategory === 'exam' ? 'exam' : 'tuition';
+    const payAmount = Number(amount);
+    if (!Number.isFinite(payAmount) || payAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid amount is required' });
+    }
+    const student = await Student.findOne({ userId: studentId }).populate('courseId');
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-    const receiptNo = 'RCP-' + Date.now();
+
+    if (category === 'exam') {
+      const examRemaining = Math.max(0, Number(student.examFeeDue || 0) - Number(student.examFeePaid || 0));
+      if (payAmount > examRemaining) {
+        return res.status(400).json({
+          success: false,
+          message: `Exam fee remaining is ${examRemaining}`,
+        });
+      }
+    } else if (payAmount > Number(student.dueAmount || 0)) {
+      return res.status(400).json({
+        success: false,
+        message: `Tuition due is ${student.dueAmount || 0}`,
+      });
+    }
+
+    const receiptNo = `RCP-${category === 'exam' ? 'EX' : 'TU'}-${Date.now()}`;
     const payment = await FeePayment.create({
       studentId: student._id,
-      amount,
+      amount: payAmount,
+      paymentCategory: category,
       receiptNo,
       paidBy: req.user.id,
+      createdBy: req.user.id,
+      notes: notes || '',
     });
-    student.dueAmount = Math.max(0, (student.dueAmount || 0) - amount);
+
+    if (category === 'exam') {
+      student.examFeePaid = Number(student.examFeePaid || 0) + payAmount;
+    } else {
+      student.dueAmount = Math.max(0, (student.dueAmount || 0) - payAmount);
+    }
     await student.save();
+
+    const label = category === 'exam' ? 'Exam fee' : 'Tuition fee';
     await Transaction.create({
       type: 'fee',
-      amount,
-      description: `Fee payment - ${receiptNo}`,
+      amount: payAmount,
+      description: `${label} payment - ${receiptNo}`,
       referenceId: payment._id,
       refModel: 'FeePayment',
       addedBy: req.user.id,
+      createdBy: req.user.id,
+      paymentCategory: category,
     });
-    const populated = await FeePayment.findById(payment._id).populate('studentId').populate('paidBy', 'name');
+
+    await writeAuditLog({
+      entityType: 'FeePayment',
+      entityId: payment._id,
+      action: 'fee_payment',
+      summary: `${label} received: ${payAmount}`,
+      metadata: { studentUserId: studentId, studentId: student._id, paymentCategory: category, amount: payAmount, receiptNo },
+      createdBy: req.user.id,
+    });
+
+    const populated = await FeePayment.findById(payment._id)
+      .populate('studentId')
+      .populate('paidBy', 'name')
+      .populate('createdBy', 'name');
     res.status(201).json({ success: true, data: populated });
   } catch (err) {
     next(err);
